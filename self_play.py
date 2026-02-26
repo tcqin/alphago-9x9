@@ -11,7 +11,13 @@ from utils import DEFAULT_GAME_OVER_EMPTY_COUNT, SL_NETWORK_PATH
 
 
 def generate_self_play_game(
-    policy_network, device, opponent=None, policy_color=None, debug=False
+    policy_network,
+    device,
+    opponent=None,
+    policy_color=None,
+    debug=False,
+    mcts_policy=None,
+    mcts_opponent=None,
 ):
     """
     Play one self-play game. Returns list of (state_tensor, move, move_idx, reward) tuples.
@@ -49,34 +55,51 @@ def generate_self_play_game(
         features_batched = features.unsqueeze(0)
         features_batched = features_batched.to(device)
         legal_moves = set(game.legal_moves())
-        with torch.no_grad():
-            outputs = network(features_batched)
-            probs = torch.softmax(outputs[0], dim=0)
-            probs_np = probs.cpu().numpy().astype(float)
-            probs_np = probs_np / probs_np.sum()
 
-            chosen = False
-            while probs_np.sum() > 0:
-                selection = np.random.choice(game.size**2, p=probs_np)
-                r, c = selection // game.size, selection % game.size
-                if (r, c) in legal_moves and not game.is_true_eye(r, c):
-                    chosen = True
-                    if network is policy_network:
-                        trajectory.append(
-                            (features, (r, c), move_idx, game.current_player)
-                        )
-                    game.play(r, c)
-                    break
-                else:
-                    probs_np[selection] = 0  # Mask the bad move
-                    total_prob = probs_np.sum()
-                    if total_prob <= 0:
-                        break
-                    probs_np = probs_np / total_prob
-            if not chosen:
+        # Determine if MCTS is available for current network
+        active_mcts = None
+        if network is policy_network and mcts_policy is not None:
+            active_mcts = mcts_policy
+        elif opponent is not None and network is opponent and mcts_opponent is not None:
+            active_mcts = mcts_opponent
+        if active_mcts is not None:
+            move = active_mcts.get_move(game)
+            if move is not None and network is policy_network:
+                r, c = move
+                trajectory.append((features, (r, c), move_idx, game.current_player))
+            if move is None:
                 game.play(None, None)
+            else:
+                game.play(move[0], move[1])
+        else:
+            with torch.no_grad():
+                outputs = network(features_batched)
+                probs = torch.softmax(outputs[0], dim=0)
+                probs_np = probs.cpu().numpy().astype(float)
+                probs_np = probs_np / probs_np.sum()
 
-            del features_batched, outputs, probs
+                chosen = False
+                while probs_np.sum() > 0:
+                    selection = np.random.choice(game.size**2, p=probs_np)
+                    r, c = selection // game.size, selection % game.size
+                    if (r, c) in legal_moves and not game.is_true_eye(r, c):
+                        chosen = True
+                        if network is policy_network:
+                            trajectory.append(
+                                (features, (r, c), move_idx, game.current_player)
+                            )
+                        game.play(r, c)
+                        break
+                    else:
+                        probs_np[selection] = 0  # Mask the bad move
+                        total_prob = probs_np.sum()
+                        if total_prob <= 0:
+                            break
+                        probs_np = probs_np / total_prob
+                if not chosen:
+                    game.play(None, None)
+
+                del features_batched, outputs, probs
 
         move_idx += 1
         empty_count = int(np.sum(game.board == EMPTY))

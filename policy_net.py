@@ -82,6 +82,7 @@ class ValueNetwork(nn.Module):
             *[self._make_conv_block(filters, filters, 3) for _ in range(hidden_layers)]
         )
         self.conv_output = nn.Conv2d(filters, 1, kernel_size=1)
+        self.dropout = nn.Dropout(0.4)
         self.fc = nn.Linear(81, 1)
         self.tanh = nn.Tanh()
 
@@ -103,6 +104,7 @@ class ValueNetwork(nn.Module):
         x = self.middle(x)
         x = self.conv_output(x)
         x = x.view(x.size(0), -1)  # (batch, 81)
+        x = self.dropout(x)
         x = self.fc(x)  # (batch, 1)
         x = self.tanh(x)  # (batch, 1), values in [-1, 1]
         return x

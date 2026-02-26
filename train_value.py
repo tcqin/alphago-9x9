@@ -1,101 +1,109 @@
 import os
 import copy
+import h5py
 import random
 import datetime
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-from policy_net import PolicyNetwork, ValueNetwork
-from self_play import generate_self_play_game
+from policy_net import ValueNetwork
 
 from torch.utils.data import TensorDataset, DataLoader
 
+data_dir = "data/self_play_games_sl"
 
-def train_value(
-    value_network, policy_network, device, num_iterations=2500, games_per_iteration=40
-):
-    """
-    RL training loop.
-    Each iteration:
-    1. Generate games_per_iteration self-play games
-    2. Compute policy gradient loss
-    3. Update network
-    """
-    value_network = value_network.to(device)
-    policy_network = policy_network.to(device)
 
-    optimizer = torch.optim.Adam(value_network.parameters(), lr=0.001)
+def augment_batch(states, outcomes):
+    """Apply a random symmetry to a batch of board positions"""
+    k = random.randint(0, 3)  # Random rotation
+    flip = random.random() < 0.5  # Random flip
+    states = torch.rot90(states, k, dims=[2, 3])
+    if flip:
+        states = torch.flip(states, dims=[3])
+    return states, outcomes
 
-    # Generate self-play games
-    epoch_length = 50
-    for iteration in range(num_iterations):
-        value_network.train()
 
-        # Generate self-play games
-        all_trajectories = []
-        for _ in range(games_per_iteration):
-            trajectory = generate_self_play_game(policy_network, device)
-            all_trajectories.extend(trajectory)
+print("Building model...")
+device = torch.device("mps")
+value_network = ValueNetwork()
+value_network = value_network.to(device)
 
-        # Compute loss and update
-        states = torch.stack([t[0] for t in all_trajectories])
-        moves = torch.tensor(
-            [t[1][0] * 9 + t[1][1] for t in all_trajectories], dtype=torch.long
-        )
-        rewards = torch.tensor([t[3] for t in all_trajectories], dtype=torch.float32)
-        del all_trajectories
+state_tensors = []
+outcome_tensors = []
 
-        # Replace the single forward pass with mini-batches
-        batch_size = 512
-        total_loss = 0
+total = 0
+files = os.listdir(data_dir)
+for i, fname in enumerate(files):
+    if not fname.endswith(".h5"):
+        continue
+    total += 1
+    if total % 10 == 0:
+        print(f"Processed {i}/{len(files)} files so far")
+    with h5py.File(os.path.join(data_dir, fname), "r") as f:
+        states = f["states"][:]
+        outcomes = f["outcomes"][:]
+        state_tensors.append(torch.tensor(states, dtype=torch.float32))
+        outcome_tensors.append(torch.tensor(outcomes, dtype=torch.float32))
+
+all_states = torch.cat(state_tensors, dim=0)
+all_outcomes = torch.cat(outcome_tensors, dim=0)
+
+print(f"State tensor shape: {all_states.shape}")
+print(f"Outcome tensor shape: {all_outcomes.shape}")
+
+dataset = TensorDataset(all_states, all_outcomes)
+train_size = int(0.9 * len(dataset))
+test_size = len(dataset) - train_size
+
+train_dataset, test_dataset = torch.utils.data.random_split(
+    dataset, [train_size, test_size]
+)
+train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=512)
+
+optimizer = torch.optim.Adam(value_network.parameters(), lr=0.001, weight_decay=1e-4)
+
+# Training loop
+num_epochs = 20
+best_test_loss = float("inf")
+for epoch in range(num_epochs):
+    value_network.train()
+    for batch_idx, (states_batch, outcomes_batch) in enumerate(train_loader):
+        states_batch, outcomes_batch = augment_batch(states_batch, outcomes_batch)
+        states_batch = states_batch.to(device)
+        outcomes_batch = outcomes_batch.to(device)
         optimizer.zero_grad()
-
-        for i in range(0, len(states), batch_size):
-            s = states[i : i + batch_size].to(device)
-            m = moves[i : i + batch_size].to(device)
-            r = rewards[i : i + batch_size].to(device)
-
-            outputs = policy_network(s)
-            log_probs = torch.log_softmax(outputs, dim=1)
-            action_log_probs = log_probs[range(len(m)), m]
-            loss = -(action_log_probs * r).mean()
-            loss.backward()
-            total_loss += loss.item()
-
-            del s, m, r, outputs, log_probs, action_log_probs, loss
-            torch.mps.empty_cache()
-
+        predicted_outcomes = value_network(states_batch)
+        loss = F.mse_loss(predicted_outcomes.squeeze(), outcomes_batch)
+        loss.backward()
         optimizer.step()
 
-        avg_reward = rewards.mean().item()
-
-        print(
-            f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Iteration {iteration}/{num_iterations}, Loss: {total_loss:.4f}, Avg Reward: {avg_reward:.4f}"
-        )
-
-        # Every N iterations, add current network to opponent pool
-        if iteration % epoch_length == 0:
-            os.makedirs("models", exist_ok=True)
-            torch.save(
-                policy_network.state_dict(),
-                f"models/alphago_rl_epoch_{iteration // epoch_length}.pth",
-            )
+        if batch_idx % 10 == 0:
             print(
-                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] After checkpoint: MPS allocated: {torch.mps.current_allocated_memory() / 1e9:.2f} GB"
+                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Epoch {epoch}/{num_epochs - 1}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}"
             )
+    os.makedirs("models", exist_ok=True)
+    torch.save(value_network.state_dict(), f"models/value_network_epoch_{epoch}.pth")
 
-        torch.mps.empty_cache()
+    # Evaluation
+    value_network.eval()
+
+    with torch.no_grad():
+        # Test accuracy
+        total_test_loss = 0
+        for states_batch, outcomes_batch in test_loader:
+            states_batch = states_batch.to(device)
+            outcomes_batch = outcomes_batch.to(device)
+            predicted_outcomes = value_network(states_batch)
+            total_test_loss += F.mse_loss(
+                predicted_outcomes.squeeze(), outcomes_batch
+            ).item()
+        avg_test_loss = total_test_loss / len(test_loader)
+        if avg_test_loss < best_test_loss:
+            best_test_loss = avg_test_loss
+            torch.save(value_network.state_dict(), f"models_filtered/value_network.pth")
         print(
-            f"[{datetime.datetime.now().strftime('%H:%M:%S')}] After empty_cache: MPS allocated: {torch.mps.current_allocated_memory() / 1e9:.2f} GB"
+            f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Epoch {epoch}/{num_epochs - 1}, Test Loss: {avg_test_loss:.4f}"
         )
-
-
-if __name__ == "__main__":
-    device = torch.device("mps")
-    value_network = ValueNetwork()
-    policy_network = PolicyNetwork()
-    policy_network.load_state_dict(
-        torch.load("models/alphago_rl_epoch_49.pth", weights_only=False)
-    )
-    train_value(value_network, policy_network, device)

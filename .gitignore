@@ -10,6 +10,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pth
+*.ht
 
 # macOS
 .DS_Store

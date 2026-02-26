@@ -223,7 +223,7 @@ if __name__ == "__main__":
         torch.load(ROLLOUT_NETWORK_PATH, weights_only=False)
     )
     device = torch.device("mps")
-    mcts = MCTS(policy_network, rollout_network, device, num_simulations=200)
+    mcts = MCTS(policy_network, rollout_network, device, num_simulations=500)
     i = 0
     while not go_game.is_game_over():
         i += 1
