@@ -1,0 +1,22 @@
+# Model checkpoints
+models/
+models_filtered/
+
+# Data
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pth
+
+# macOS
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.venv/
