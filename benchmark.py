@@ -16,7 +16,7 @@ from utils import (
     VALUE_NETWORK_PATH,
 )
 
-NUM_GAMES = 100
+NUM_GAMES = 200
 device = torch.device("mps")
 
 
@@ -46,6 +46,10 @@ if __name__ == "__main__":
     sl_network = PolicyNetwork().to(device)
     sl_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
     sl_network.eval()
+
+    rl_network = PolicyNetwork().to(device)
+    rl_network.load_state_dict(torch.load(RL_NETWORK_PATH, weights_only=False))
+    rl_network.eval()
 
     rollout_network = RolloutNetwork().to(device)
     rollout_network.load_state_dict(
@@ -90,6 +94,7 @@ if __name__ == "__main__":
 
     configs = [
         ("SL only (Sungmin)", sl_network, baseline_sl, None, None),
+        ("RL only (Sungmin)", rl_network, baseline_sl, None, None),
         ("SL + rollout (Hyunwoo)", sl_network, baseline_sl, mcts_rollout_only, None),
         ("SL + value only (I-geon)", sl_network, baseline_sl, mcts_value_only, None),
         (

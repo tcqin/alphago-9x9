@@ -6,19 +6,19 @@ import random
 import datetime
 import numpy as np
 
-from utils import SL_NETWORK_PATH
+from utils import SL_NETWORK_PATH, RL_NETWORK_PATH
 from policy_net import PolicyNetwork
 from self_play import generate_self_play_game
 
 N = 100
 pid = int(sys.argv[1])
 
-data_dir = "data/self_play_games_sl"
+data_dir = "data/self_play_games_rl"
 os.makedirs(data_dir, exist_ok=True)
 
 device = torch.device("mps")
 policy_network = PolicyNetwork()
-policy_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
+policy_network.load_state_dict(torch.load(RL_NETWORK_PATH, weights_only=False))
 
 for iteration in range(N):
     policy_network.eval()

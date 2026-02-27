@@ -14,6 +14,7 @@ from policy_net import PolicyNetwork, ValueNetwork, RolloutNetwork
 from utils import (
     DEFAULT_GAME_OVER_EMPTY_COUNT,
     SL_NETWORK_PATH,
+    RL_NETWORK_PATH,
     ROLLOUT_NETWORK_PATH,
     VALUE_NETWORK_PATH,
 )
@@ -244,7 +245,7 @@ class MCTS:
 if __name__ == "__main__":
     go_game = GoGame()
     policy_network = PolicyNetwork()
-    policy_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
+    policy_network.load_state_dict(torch.load(RL_NETWORK_PATH, weights_only=False))
     value_network = ValueNetwork()
     value_network.load_state_dict(torch.load(VALUE_NETWORK_PATH, weights_only=False))
     rollout_network = RolloutNetwork()
@@ -256,9 +257,9 @@ if __name__ == "__main__":
         policy_network,
         rollout_network,
         device,
-        num_simulations=250,
-        value_network=value_network,
-        value_lambda=0.5,
+        num_simulations=100,
+        value_network=None,
+        value_lambda=None,
     )
     i = 0
     while not go_game.is_game_over():
