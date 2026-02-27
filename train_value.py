@@ -3,12 +3,14 @@ import copy
 import h5py
 import random
 import datetime
+import numpy as np
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from policy_net import ValueNetwork
+from utils import VALUE_NETWORK_PATH
 
 from torch.utils.data import TensorDataset, DataLoader
 
@@ -35,12 +37,10 @@ outcome_tensors = []
 
 total = 0
 files = os.listdir(data_dir)
+print(f"Processing {len(files)} files")
 for i, fname in enumerate(files):
     if not fname.endswith(".h5"):
         continue
-    total += 1
-    if total % 10 == 0:
-        print(f"Processed {i}/{len(files)} files so far")
     with h5py.File(os.path.join(data_dir, fname), "r") as f:
         states = f["states"][:]
         outcomes = f["outcomes"][:]
@@ -64,10 +64,45 @@ train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=512)
 
 optimizer = torch.optim.Adam(value_network.parameters(), lr=0.001, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, mode="min", factor=0.5, patience=3
+)
+
+# Current best value network
+best_network = ValueNetwork().to(device)
+best_network.load_state_dict(torch.load(VALUE_NETWORK_PATH, weights_only=False))
+best_network.eval()
+
+total_test_loss = 0
+all_predictions = []
+all_outcomes_test = []
+
+with torch.no_grad():
+    for states_batch, outcomes_batch in test_loader:
+        states_batch = states_batch.to(device)
+        outcomes_batch = outcomes_batch.to(device)
+        predicted_outcomes = best_network(states_batch).squeeze()
+        total_test_loss += F.mse_loss(predicted_outcomes, outcomes_batch).item()
+        all_predictions.extend(predicted_outcomes.cpu())
+        all_outcomes_test.extend(outcomes_batch.cpu())
+
+best_test_loss = total_test_loss / len(test_loader)
+all_predictions = np.array(all_predictions)
+all_outcomes_test = np.array(all_outcomes_test)
+correct_sign = ((all_predictions > 0) == (all_outcomes_test > 0)).mean()
+
+print(f"Current best test loss: {best_test_loss:.4f}")
+print(
+    f"Predictions - min: {all_predictions.min():.3f}, max: {all_predictions.max():.3f}, mean: {all_predictions.mean():.3f}, std: {all_predictions.std():.3f}"
+)
+print(f"% predicted > 0.5: {(all_predictions > 0.5).mean():.3f}")
+print(f"% predicted < -0.5: {(all_predictions < -0.5).mean():.3f}")
+print(f"% predicted near 0 (|x| < 0.1): {(np.abs(all_predictions) < 0.1).mean():.3f}")
+print(f"Sign accuracy: {correct_sign:.3f}")
+
 
 # Training loop
-num_epochs = 20
-best_test_loss = float("inf")
+num_epochs = 50
 for epoch in range(num_epochs):
     value_network.train()
     for batch_idx, (states_batch, outcomes_batch) in enumerate(train_loader):
@@ -80,7 +115,7 @@ for epoch in range(num_epochs):
         loss.backward()
         optimizer.step()
 
-        if batch_idx % 10 == 0:
+        if batch_idx % 100 == 0:
             print(
                 f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Epoch {epoch}/{num_epochs - 1}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}"
             )
@@ -107,3 +142,5 @@ for epoch in range(num_epochs):
         print(
             f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Epoch {epoch}/{num_epochs - 1}, Test Loss: {avg_test_loss:.4f}"
         )
+
+    scheduler.step(avg_test_loss)

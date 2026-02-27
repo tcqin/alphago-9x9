@@ -10,8 +10,13 @@ import numpy as np
 
 from go_engine import GoGame, BLACK, WHITE, EMPTY
 from features import tensorfy_game, tensorfy_game_rollout
-from policy_net import PolicyNetwork, RolloutNetwork
-from utils import DEFAULT_GAME_OVER_EMPTY_COUNT, SL_NETWORK_PATH, ROLLOUT_NETWORK_PATH
+from policy_net import PolicyNetwork, ValueNetwork, RolloutNetwork
+from utils import (
+    DEFAULT_GAME_OVER_EMPTY_COUNT,
+    SL_NETWORK_PATH,
+    ROLLOUT_NETWORK_PATH,
+    VALUE_NETWORK_PATH,
+)
 
 
 class MCTSNode:
@@ -33,7 +38,7 @@ class MCTSNode:
         return self.W / self.N
 
     def uct_score(self, parent_N, c=1.4):
-        exploitation = self.Q
+        exploitation = -self.Q  # Negating because this is from perspective of parent
         exploration = c * self.prior * math.sqrt(parent_N) / (1 + self.N)
         return exploitation + exploration
 
@@ -46,17 +51,29 @@ class MCTSNode:
 
 class MCTS:
     def __init__(
-        self, policy_network, rollout_network, device, num_simulations=200, c=1.4
+        self,
+        policy_network,
+        rollout_network,
+        device,
+        num_simulations=200,
+        value_network=None,
+        value_lambda=0.0,
+        c=1.4,
     ):
         self.device = device
-        self.policy_network = policy_network
-        self.policy_network = self.policy_network.to(device)
+        self.policy_network = policy_network.to(device)
         self.policy_network.eval()
         self.rollout_network = (
             rollout_network.cpu()
         )  # Keep a CPU copy of the rollout network
         self.rollout_network.eval()
         self.num_simulations = num_simulations
+        if value_network:
+            self.value_network = value_network.to(device)
+            self.value_network.eval()
+        else:
+            self.value_network = None
+        self.value_lambda = value_lambda
         self.c = c  # exploration constant
 
     def get_move(self, game):
@@ -72,10 +89,7 @@ class MCTS:
             if not node.game.is_game_over():
                 self._expand(node)
                 node = self._select(node)  # select among new children
-            moves_already_played_approx = int(np.sum(game.board != EMPTY)) + node.depth
-            value = self._rollout(
-                node.game, moves_already_played=moves_already_played_approx
-            )
+            value = self._evaluate(node.game)
             self._backpropagate(node, value)
 
         # Pick move with highest visit count
@@ -87,14 +101,6 @@ class MCTS:
                 else root.children[m].N * 0.05
             ),
         )
-
-        # # Debug: print top 5 moves by visit count
-        # top_moves = sorted(root.children.items(), key=lambda x: x[1].N, reverse=True)[
-        #     :5
-        # ]
-        # for move, node in top_moves:
-        #     eye = game.is_true_eye(move[0], move[1]) if move is not None else False
-        #     print(f"Move {move}: N={node.N}, Q={node.Q:.3f}, eye={eye}")
 
         # Explicitly clear tree
         root.children.clear()
@@ -161,13 +167,34 @@ class MCTS:
             )
         node.is_expanded = True
 
-    def _rollout(self, game, moves_already_played=0):
-        """Play random moves to end of game, return outcome."""
+    def _evaluate(self, game):
+        """Evaluate position using value network + rollout network"""
+        # Value network evaluation short-circuit
+        if self.value_network and self.value_lambda == 1.0:
+            features = tensorfy_game(game)
+            features_batched = features.unsqueeze(0).to(self.device)
+            with torch.no_grad():
+                return self.value_network(features_batched).item()  # [-1, 1]
+
+        # Rollout evaluation
+        rollout_value = self._rollout(game)
+
+        # Value network evaluation
+        if self.value_network:
+            features = tensorfy_game(game)
+            features_batched = features.unsqueeze(0).to(self.device)
+            with torch.no_grad():
+                value = self.value_network(features_batched).item()  # [-1, 1]
+            return self.value_lambda * value + (1 - self.value_lambda) * rollout_value
+        else:
+            return rollout_value
+
+    def _rollout(self, game):
+        """Play out game based on rollout network"""
         game = game.copy(copy_history=False)
         original_player = game.current_player
-        max_moves = 80
-        moves_played = moves_already_played
-        while not game.is_game_over() and moves_played < max_moves:
+        empty_count = int(np.sum(game.board == EMPTY))
+        while not game.is_game_over() and empty_count > DEFAULT_GAME_OVER_EMPTY_COUNT:
             features = tensorfy_game_rollout(game)
             features_batched = features.unsqueeze(0)
             with torch.no_grad():
@@ -197,7 +224,7 @@ class MCTS:
             # Otherwise, just pass
             if not played:
                 game.play(None, None, check_legal=False, record_history=False)
-            moves_played += 1
+            empty_count = int(np.sum(game.board == EMPTY))
 
         b_score, w_score = game.score()
         if original_player == BLACK:
@@ -218,12 +245,21 @@ if __name__ == "__main__":
     go_game = GoGame()
     policy_network = PolicyNetwork()
     policy_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
+    value_network = ValueNetwork()
+    value_network.load_state_dict(torch.load(VALUE_NETWORK_PATH, weights_only=False))
     rollout_network = RolloutNetwork()
     rollout_network.load_state_dict(
         torch.load(ROLLOUT_NETWORK_PATH, weights_only=False)
     )
     device = torch.device("mps")
-    mcts = MCTS(policy_network, rollout_network, device, num_simulations=500)
+    mcts = MCTS(
+        policy_network,
+        rollout_network,
+        device,
+        num_simulations=250,
+        value_network=value_network,
+        value_lambda=0.5,
+    )
     i = 0
     while not go_game.is_game_over():
         i += 1

@@ -9,9 +9,6 @@ import torch.nn.functional as F
 from torch.utils.data import Subset
 from torch.utils.data import DataLoader
 
-import torchvision
-import torchvision.transforms as transforms
-
 import numpy as np
 
 from dataset import GoDataset

@@ -63,6 +63,7 @@ def generate_self_play_game(
         elif opponent is not None and network is opponent and mcts_opponent is not None:
             active_mcts = mcts_opponent
         if active_mcts is not None:
+            del features_batched
             move = active_mcts.get_move(game)
             if move is not None and network is policy_network:
                 r, c = move

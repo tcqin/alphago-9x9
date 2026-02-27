@@ -1,5 +1,4 @@
 import h5py
-import numpy as np
 
 with h5py.File("data/self_play_games_sl/dataset_0.h5", "r") as f:
     states = f["states"][:]

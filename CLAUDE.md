@@ -57,7 +57,7 @@ Standard PUCT selection, expansion via top-20 policy network moves, rollout to g
 3. **RL** (`train_rl.py`): Self-play policy gradient. Opponent pool = SL network + previous RL checkpoints, weighted toward recent generations. 80 games/iteration, gradient clipping at 1.2, `lr=5e-6`, demeaned rewards.
 
 ### Key Utilities (`utils.py`)
-Global constants: `DEFAULT_GAME_OVER_EMPTY_COUNT = 16` (game ends when ≤16 empty squares remain), and model paths `SL_NETWORK_PATH`, `ROLLOUT_NETWORK_PATH`, `RL_NETWORK_PATH`.
+Global constants: `DEFAULT_GAME_OVER_EMPTY_COUNT = 15` (game ends when 15 empty squares remain), and model paths `SL_NETWORK_PATH`, `ROLLOUT_NETWORK_PATH`, `RL_NETWORK_PATH`.
 
 ### Data Layout
 ```

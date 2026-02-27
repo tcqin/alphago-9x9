@@ -28,7 +28,10 @@ for iteration in range(N):
     batch_size = 1000
     for i in range(batch_size):
         trajectory = generate_self_play_game(policy_network, device)
-        state, move, move_idx, reward = random.choice(trajectory)
+        weights = [(i + 1) ** 0.5 for i in range(len(trajectory))]
+        state, move, move_idx, reward = random.choices(
+            trajectory, weights=weights, k=1
+        )[0]
         del trajectory
         states.append(state.numpy())
         outcomes_array.append(reward)

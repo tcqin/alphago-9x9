@@ -21,3 +21,5 @@ models_filtered/rollout_network: copy of models/alphago_simple_rollout_epoch_45.
 
 # 2026-02-26
 Changing DEFAULT_GAME_OVER_EMPTY_COUNT to 16 yielded an average game length of ~80
+Starting to generate data for the value network (attempting for 500k games not including data augmentation)
+Choosing a position from each game with probability (i + 1) ** 0.5 where i is the move number

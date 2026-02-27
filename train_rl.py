@@ -4,15 +4,14 @@ import torch
 import random
 import datetime
 
-from mcts import MCTS
-from benchmark import compare_networks
+from benchmark import play_games
 from self_play import generate_self_play_game
-from policy_net import PolicyNetwork, RolloutNetwork
-from utils import SL_NETWORK_PATH, ROLLOUT_NETWORK_PATH
+from policy_net import PolicyNetwork, ValueNetwork
+from utils import SL_NETWORK_PATH, VALUE_NETWORK_PATH
 
 
 def train_rl(
-    policy_network, rollout_network, device, num_iterations=4000, games_per_iteration=20
+    policy_network, value_network, device, num_iterations=4000, games_per_iteration=80
 ):
     """
     RL training loop.
@@ -22,10 +21,7 @@ def train_rl(
     3. Update network
     """
     policy_network = policy_network.to(device)
-    optimizer = torch.optim.Adam(policy_network.parameters(), lr=0.000005)
-
-    # Create policy MCTS once
-    mcts_policy = MCTS(policy_network, rollout_network, device, num_simulations=10)
+    optimizer = torch.optim.Adam(policy_network.parameters(), lr=0.0001)
 
     # Initialize opponent pool
     opponent_pool = [
@@ -38,7 +34,7 @@ def train_rl(
         policy_network.train()
 
         # Sample opponent from pool
-        if random.random() < 0.3 or len(opponent_pool) == 1:
+        if random.random() < 0.5 or len(opponent_pool) == 1:
             opponent_state = opponent_pool[0]  # SL network
         else:
             weights = [(i + 1) for i in range(1, len(opponent_pool))]
@@ -55,60 +51,78 @@ def train_rl(
                 policy_network,
                 device,
                 opponent,
-                mcts_policy=mcts_policy,
             )
             all_trajectories.extend(trajectory)
 
         del opponent  # free MPS memory before training step
         torch.mps.empty_cache()
-
-        policy_network.train()  # MCTS sets it to eval, so restore before backwards pass
+        policy_network.train()
 
         # Compute loss and update
         states = torch.stack([t[0] for t in all_trajectories])
         moves = torch.tensor(
             [t[1][0] * 9 + t[1][1] for t in all_trajectories], dtype=torch.long
         )
+        move_idxs = [t[2] for t in all_trajectories]
+        move_idxs_t = torch.tensor(move_idxs, dtype=torch.long)
         rewards = torch.tensor([t[3] for t in all_trajectories], dtype=torch.float32)
 
-        # Find means and normalize
         avg_reward = rewards.mean().item()
-        rewards = rewards - rewards.mean()
+
+        total_N = len(states)
+        batch_size = 512
+
+        # Compute V(s) for all states
+        with torch.no_grad():
+            value_preds = []
+            for i in range(0, len(states), batch_size):
+                s = states[i : i + batch_size].to(device)
+                v = value_network(s).squeeze(-1).cpu()
+                value_preds.append(v)
+            values = torch.cat(value_preds)
+
+        # TD advantages: V(s_{t+1}) - V(s_t) within a game, R - V(s_t) at game end.
+        # Consecutive trajectory entries are both from the policy player's perspective
+        # so no sign flip is needed. A game boundary occurs when move_idx doesn't advance
+        is_game_end = torch.ones(total_N, dtype=torch.bool)
+        is_game_end[:-1] = move_idxs_t[1:] < move_idxs_t[:-1]
+        next_values = torch.cat([values[1:], torch.zeros(1)])
+        advantages = torch.where(is_game_end, rewards - values, next_values - values)
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         # Calculate average game length
-        move_idxs = [t[2] for t in all_trajectories]
         game_lengths = [
             move_idxs[i]
             for i in range(1, len(move_idxs) - 1)
             if move_idxs[i] > move_idxs[i - 1] and move_idxs[i] > move_idxs[i + 1]
-        ]
-        avg_game_length = sum(game_lengths) / len(game_lengths)
+        ] + [move_idxs[-1]]
+        avg_game_length = sum(game_lengths) / len(game_lengths) + 1
 
         del all_trajectories
 
         # Replace the single forward pass with mini-batches
-        total_N = len(states)
-        batch_size = 512
         total_loss = 0
         optimizer.zero_grad()
 
         for i in range(0, len(states), batch_size):
             s = states[i : i + batch_size].to(device)
             m = moves[i : i + batch_size].to(device)
-            r = rewards[i : i + batch_size].to(device)
+            a = advantages[i : i + batch_size].to(device)
 
             outputs = policy_network(s)
+            probs = torch.softmax(outputs, dim=1)
             log_probs = torch.log_softmax(outputs, dim=1)
+            entropy = -(probs * log_probs).sum(dim=1).mean()
             action_log_probs = log_probs[range(len(m)), m]
-            loss = -(action_log_probs * r).sum() / total_N
+            loss = -(action_log_probs * a).sum() / total_N - 0.001 * entropy
             loss.backward()
             total_loss += loss.item()
 
-            del s, m, r, outputs, log_probs, action_log_probs, loss
+            del s, m, a, outputs, probs, log_probs, entropy, action_log_probs, loss
             torch.mps.empty_cache()
 
         grad_norm = torch.nn.utils.clip_grad_norm_(
-            policy_network.parameters(), max_norm=1.2
+            policy_network.parameters(), max_norm=1.0
         )
         optimizer.step()
 
@@ -129,15 +143,15 @@ def train_rl(
             sl_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
             sl_network.eval()
             policy_network.eval()
-            games_won, games_played = compare_networks(
-                policy_network, sl_network, device, iterations=200
+            games_won, games_played = play_games(
+                policy_network, sl_network, None, None, num_games=200
             )
             del sl_network
             torch.mps.empty_cache()
             print(
                 f"[{datetime.datetime.now().strftime('%H:%M:%S')}] New model won {games_won}/{games_played} games against the original SL network"
             )
-            if games_won / games_played >= 0.5:
+            if games_won / games_played >= 0.55:
                 state_dict_cpu = {
                     k: v.cpu() for k, v in policy_network.state_dict().items()
                 }
@@ -151,10 +165,9 @@ def train_rl(
 
 if __name__ == "__main__":
     device = torch.device("mps")
-    policy_network = PolicyNetwork()
+    policy_network = PolicyNetwork().to(device)
     policy_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
-    rollout_network = RolloutNetwork()
-    rollout_network.load_state_dict(
-        torch.load(ROLLOUT_NETWORK_PATH, weights_only=False)
-    )
-    train_rl(policy_network, rollout_network, device)
+    value_network = ValueNetwork().to(device)
+    value_network.load_state_dict(torch.load(VALUE_NETWORK_PATH, weights_only=False))
+    value_network.eval()
+    train_rl(policy_network, value_network, device)

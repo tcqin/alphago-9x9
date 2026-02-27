@@ -5,6 +5,9 @@ models_filtered/
 # Data
 data/
 
+# Logs
+*.log
+
 # Python
 __pycache__/
 *.pyc

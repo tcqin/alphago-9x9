@@ -61,6 +61,7 @@ class GoGame:
         g.move_history = (
             [(b.copy(), kp) for b, kp in self.move_history] if copy_history else []
         )
+        g.last_move = self.last_move
         g.passes = self.passes
         g.game_over = self.game_over
         return g
