@@ -4,7 +4,8 @@ Stores network paths and meta-information about the AlphaGo 9x9 system.
 # Models
 models_filtered contains the filtered set of models
 models_filtered/sl_network: copy of models/alphago_epoch_8.pth
-models_filtered/rl_network: copy of models/alphago_rl_epoch_18.pth
+models_filtered/rl_network: highest version of models_filtered/rl_network_v{i}.pth
+    - v1: copy of models/alphago_rl_epoch18.pth, which won 145/200 games against the SL network (2026-02-27)
 models_filtered/value_network: copy of models/value_network_epoch_{epoch}.pth
 models_filtered/rollout_network: copy of models/alphago_simple_rollout_epoch_45.pth
 
@@ -16,17 +17,26 @@ models_filtered/rollout_network: copy of models/alphago_simple_rollout_epoch_45.
 - dataset_{0-499}.h5 generated from the RL network using DEFAULT_GAME_OVER_EMPTY_COUNT=16
 
 # Worklog
-1. Built SL network based on 1500+ elo online games (37x9x9)
+1. Built a SL (supervised learning) network based on 1500+ elo online games (37x9x9)
 2. Built simple rollout network based on the same games with a smaller architecture (5x9x9)
-3. Working on RL network
-    - Added is_true_eye check to generate_self_play_game, although this is still imperfect
-    - Made sure we were only training on the policy_network's perspective
-    - Demeaned the rewards so that we're comparing against the baseline
-    - Games used to last 200+ moves where the board was just cycling
-    - Set the DEFAULT_GAME_OVER_EMPTY_COUNT to 16 to prevent games from going on for too long
+3. Built a value network with a similar architecture as the SL network (37x9x9) that was trained to
+predict the result of a game given a situation (37x9x9)
+4. Built a RL (reinforcement learning) network that was seeded with the parameters from the original
+SL network (37x9x9). We then pit this network against itself to maximize winning (as opposed to mimic'ing
+humans' moves). We periodically check if the new network is beating the original SL network, and if so,
+we checkpoint the weights of the new network. As training progresses, we pit the network against a pool
+consisting of the original SL network as well as previous checkpoints. There were many issues and bugs
+that we had to address during this stage:
+    - Made sure we're only training on the RL network's perspective
+    - Added DEFAULT_GAME_OVER_EMPTY_COUNT (around 15) to prevent games from cycling
     - Used a larger number of games per iteration (80) to denoise the training
-    - Clipped the gradients at 1.2 to prevent snowballing effects
-    - Reduced the learning rate
+    - Clipped the gradients to 1.0 to prevent snowballing effects
+    - Played around with the learning rate, ultimately settling to 1e-4
+    - We found a bug in mcts.py where select_child was grabbing self.Q from the child instead of the parent,
+    which effectively interted the reward metric (since the perspective flips each turn)
+    - We used the value network (trained above) to determine how good moves were based on TD (temporal
+    differences) advantages in the RL network training loop to incentivize good moves. This was a game-changer.
+    - After adding all the above, the RL network was able to beat the original SL network in 140/200 games
 
 # 2026-02-27
 RL network training is finally working! I think it's because of the TD (temporal difference)
