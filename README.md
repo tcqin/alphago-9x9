@@ -7,6 +7,7 @@ The final version of AlphaGo 9x9 combines CNNs and MCTS (Monte Carlo Tree Search
 
 # Data
 I pulled existing 9x9 games from a couple of links online that I found from the omega_go repository:
+
    `data/Kifu`  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;https://www.dropbox.com/s/5wsrhr4pbtuygd6/go9-large.tgz  
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;https://www.dropbox.com/s/dsdftx4kux2nezj/gokif2.tgz  
@@ -19,12 +20,19 @@ I pulled existing 9x9 games from a couple of links online that I found from the 
 # Directory layout
 `filter_9x9.py` `filter_9x9_winner_elo.py`: Filter the raw 9x9 online games using sgfmill and keep only the
 games where the ELO is 1500+
+
 `go_engine.py`: Stores the `GoGame` class that is used throughout the project
+
 `features.py`: Takes a game state and converts it into a 3-dimensional tensor used for training
+
 `policy_net.py`: Defines the network architecture for the various networks
+
 `mcts.py`: Defines the core logic behind Monte Carlo Tree Search
+
 `train_sl.py` `train_rollout.py` `train_value.py` `train_rl.py`: Various training scripts
+
 `benchmark.py`: Compares various models against each other
+
 `human_play.py`: Allows a human to play AlphaGo 9x9 via a terminal UI
 
 # Training
