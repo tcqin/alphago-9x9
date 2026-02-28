@@ -4,8 +4,7 @@ import torch
 import datetime
 import numpy as np
 
-from go_engine import GoGame, BLACK, WHITE, EMPTY
-from features import tensorfy_game
+from go_engine import BLACK, WHITE
 from policy_net import PolicyNetwork, RolloutNetwork, ValueNetwork
 from mcts import MCTS
 from self_play import generate_self_play_game

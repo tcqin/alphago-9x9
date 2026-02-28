@@ -8,7 +8,6 @@ import sgfmill.sgf
 
 from go_engine import GoGame
 from features import tensorfy_game
-from torchvision import transforms
 from torch.utils.data import Dataset
 
 

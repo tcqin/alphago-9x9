@@ -84,8 +84,15 @@ the SL network or the RL network. We then run MCTS on each position, summing tog
 often does this node win) and an "exploration" term (we want to encourage exploration of unexplored moves). Each
 leaf node is evaluated using both the value network and the rollout network simulation, which are then averaged.
 
-# Utils
-Stores network paths and meta-information about the AlphaGo 9x9 system.
+# Results
+I benchmarked the original SL network against a variety of SL combinations:
+- SL network only (no MCTS): won 51/100 games (as expected)
+- SL network + rollout: won 77/100 games
+- SL network + value: won 94/100 games
+- SL network + rollout + value: won 94/100
+
+All MCTS configs played against the raw SL network with 100 simulations each. These results suggest that the
+simple rollout search is not additive to the value network, but there is more testing to be done here.
 
 # Models
 - `models_filtered` contains the filtered set of models
@@ -147,4 +154,4 @@ The plan going forward is to:
 # 2026-02-26
 Changing `DEFAULT_GAME_OVER_EMPTY_COUNT` to 16 yielded an average game length of ~80
 Starting to generate data for the value network (attempting for 500k games not including data augmentation)
-Choosing a position from each game with probability (i + 1) ** 0.5 where i is the move number
+Choosing a position from each game with probability `(i + 1) ** 0.5` where `i` is the move number
