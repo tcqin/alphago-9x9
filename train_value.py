@@ -14,7 +14,7 @@ from utils import VALUE_NETWORK_PATH
 
 from torch.utils.data import TensorDataset, DataLoader
 
-data_dir = "data/self_play_games_sl"
+data_dir = "data"
 
 
 def augment_batch(states, outcomes):
@@ -27,7 +27,6 @@ def augment_batch(states, outcomes):
     return states, outcomes
 
 
-print("Building model...")
 device = torch.device("mps")
 value_network = ValueNetwork()
 value_network = value_network.to(device)
@@ -35,17 +34,19 @@ value_network = value_network.to(device)
 state_tensors = []
 outcome_tensors = []
 
-total = 0
-files = os.listdir(data_dir)
-print(f"Processing {len(files)} files")
-for i, fname in enumerate(files):
-    if not fname.endswith(".h5"):
-        continue
-    with h5py.File(os.path.join(data_dir, fname), "r") as f:
-        states = f["states"][:]
-        outcomes = f["outcomes"][:]
-        state_tensors.append(torch.tensor(states, dtype=torch.float32))
-        outcome_tensors.append(torch.tensor(outcomes, dtype=torch.float32))
+total_files = 0
+for root, dirs, files in os.walk(data_dir):
+    for fname in files:
+        if not fname.endswith(".h5"):
+            continue
+        with h5py.File(os.path.join(root, fname), "r") as f:
+            states = f["states"][:]
+            outcomes = f["outcomes"][:]
+            state_tensors.append(torch.tensor(states, dtype=torch.float32))
+            outcome_tensors.append(torch.tensor(outcomes, dtype=torch.float32))
+        total_files += 1
+
+print(f"Processed {total_files} .h5 files")
 
 all_states = torch.cat(state_tensors, dim=0)
 all_outcomes = torch.cat(outcome_tensors, dim=0)
