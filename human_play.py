@@ -2,7 +2,7 @@ import torch
 from go_engine import GoGame, BLACK, WHITE
 from mcts import MCTS
 from policy_net import PolicyNetwork, RolloutNetwork, ValueNetwork
-from utils import SL_NETWORK_PATH, ROLLOUT_NETWORK_PATH, VALUE_NETWORK_RL_PATH
+from utils import SL_NETWORK_PATH, ROLLOUT_NETWORK_PATH, VALUE_NETWORK_SL_PATH
 
 
 def get_human_move(game):
@@ -26,7 +26,7 @@ policy_network = PolicyNetwork()
 policy_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
 policy_network.eval()
 value_network = ValueNetwork().to(device)
-value_network.load_state_dict(torch.load(VALUE_NETWORK_RL_PATH, weights_only=False))
+value_network.load_state_dict(torch.load(VALUE_NETWORK_SL_PATH, weights_only=False))
 value_network.eval()
 rollout_network = RolloutNetwork()
 rollout_network.load_state_dict(torch.load(ROLLOUT_NETWORK_PATH, weights_only=False))
@@ -35,9 +35,9 @@ mcts = MCTS(
     policy_network,
     rollout_network,
     device,
-    num_simulations=1000,
+    num_simulations=500,
     value_network=value_network,
-    value_lambda=1.0,
+    value_lambda=0.5,
 )
 
 game = GoGame()

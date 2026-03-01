@@ -3,7 +3,8 @@ AlphaGo 9x9 is a neural network that plays 9x9 games of Go. The architecture mim
 implementation of AlphaGo, but this version was trained on a MacBook Pro with an Apple M2 Max chip
 over the course of a week.
 
-The final version of AlphaGo 9x9 combines CNNs and MCTS (Monte Carlo Tree Search) in its final algorithm.
+The final version of AlphaGo 9x9 combines CNNs and MCTS (Monte Carlo Tree Search). It was able to beat
+nfBot, a GNU Go 3.8 engine running on [northflank.com](northflank.com).
 
 # Data
 I pulled existing 9x9 games from a couple of links online that I found from the omega_go repository:
