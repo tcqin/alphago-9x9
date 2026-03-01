@@ -85,14 +85,24 @@ often does this node win) and an "exploration" term (we want to encourage explor
 leaf node is evaluated using both the value network and the rollout network simulation, which are then averaged.
 
 # Results
-I benchmarked the original SL network against a variety of SL combinations:
-- SL network only (no MCTS): won 51/100 games (as expected)
-- SL network + rollout: won 77/100 games
-- SL network + value: won 94/100 games
-- SL network + rollout + value: won 94/100
+I benchmarked a variety of network combinations against the original SL network:
+- `SL network` only (no MCTS): won 51/100 games (as expected)
+- `RL network` only (no MCTS): won 69/100 games
+- `SL network` + `MCTS(0.0 * value_sl + 1.0 * rollout)`: won 70/100 games
+- `SL network` + `MCTS(0.2 * value_sl + 0.8 * rollout)`: won 79/100 games
+- `SL network` + `MCTS(0.5 * value_sl + 0.5 * rollout)`: won 91/100 games
+- `SL network` + `MCTS(0.8 * value_sl + 0.2 * rollout)`: won 91/100 games
+- `SL network` + `MCTS(1.0 * value_sl + 0.0 * rollout)`: won 87/100 games
+- `RL network` + `MCTS(1.0 * value_sl)`: won 83/100 games
+- `RL network` + `MCTS(1.0 * value_sl)`: won 82/100 games
 
-All MCTS configs played against the raw SL network with 100 simulations each. These results suggest that the
-simple rollout search is not additive to the value network, but there is more testing to be done here.
+All configs played against the raw SL network with 100 simulations each. The combination that used the SL network
+as the priors and an MCTS config of `0.5 * value_sl + 0.5 * rollout` performed the best. In comparison, the original
+AlphaGo paper reported that their SL network priors and a MCTS config of `0.5 * value_rl + 0.5 * rollout` performed
+the best. In either case, the SL priors did better, presumably because they have a bit more entropy in their
+probability distributions, which allow MCTS to search over a more diverse set of moves. My results suggest that the
+value network trained over the SL network's self-play games performed better than that trained over the RL network's
+self-play games (not shown above).
 
 # Models
 - `models_filtered` contains the filtered set of models
@@ -138,15 +148,7 @@ Training 3 separate value network models:
 - `value_network_rl`: Trained on just the RL vs RL self-play games
 - `value_network_both`: Trained on both set of self-play games
 
-Benchmarking script will compare the three value networks when paired with either an SL or an RL network.
-- SL vs SL: 105/200 games (52.5%)
-- RL vs SL: 138/200 games (69.0%)
-- SL + value_sl vs SL: 172/200 games (86.0%)
-- SL + value_rl vs SL: 165/200 games (82.5%)
-- RL + value_sl vs SL: 167/200 games (83.5%)
-- RL + value_rl vs SL: 165/200 games (82.5%)
-
-Added Dirichlet noise to root priors to break determinism.
+Added Dirichlet noise to root priors to break determinism in the value network selection in MCTS.
 
 # 2026-02-27
 RL network training is finally working. I think it's because of the TD (temporal difference)
