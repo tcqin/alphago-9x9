@@ -1,12 +1,11 @@
 import os
-import copy
 import h5py
 import random
 import datetime
+import argparse
 import numpy as np
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 from policy_net import ValueNetwork
@@ -14,7 +13,22 @@ from utils import VALUE_NETWORK_PATH
 
 from torch.utils.data import TensorDataset, DataLoader
 
-data_dir = "data"
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", type=str, required=True, help="[sl, rl, both]")
+args = parser.parse_args()
+config = args.config
+
+if config == "sl":
+    data_dir = "data/self_play_games_sl"
+    model_prefix = "value_network_sl"
+elif config == "rl":
+    data_dir = "data/self_play_games_rl"
+    model_prefix = "value_network_rl"
+elif config == "both":
+    data_dir = "data"
+    model_prefix = "value_network_both"
+else:
+    raise Exception("Config must be one of [sl, rl, both]")
 
 
 def augment_batch(states, outcomes):
@@ -70,40 +84,41 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
 )
 
 # Current best value network
-best_network = ValueNetwork().to(device)
-best_network.load_state_dict(torch.load(VALUE_NETWORK_PATH, weights_only=False))
-best_network.eval()
+best_test_loss = 1.0
+# total_test_loss = 0
+# all_predictions = []
+# all_outcomes_test = []
 
-total_test_loss = 0
-all_predictions = []
-all_outcomes_test = []
+# best_network = ValueNetwork().to(device)
+# best_network.load_state_dict(torch.load(VALUE_NETWORK_PATH, weights_only=False))
+# best_network.eval()
 
-with torch.no_grad():
-    for states_batch, outcomes_batch in test_loader:
-        states_batch = states_batch.to(device)
-        outcomes_batch = outcomes_batch.to(device)
-        predicted_outcomes = best_network(states_batch).squeeze()
-        total_test_loss += F.mse_loss(predicted_outcomes, outcomes_batch).item()
-        all_predictions.extend(predicted_outcomes.cpu())
-        all_outcomes_test.extend(outcomes_batch.cpu())
+# with torch.no_grad():
+#     for states_batch, outcomes_batch in test_loader:
+#         states_batch = states_batch.to(device)
+#         outcomes_batch = outcomes_batch.to(device)
+#         predicted_outcomes = best_network(states_batch).squeeze()
+#         total_test_loss += F.mse_loss(predicted_outcomes, outcomes_batch).item()
+#         all_predictions.extend(predicted_outcomes.cpu())
+#         all_outcomes_test.extend(outcomes_batch.cpu())
 
-best_test_loss = total_test_loss / len(test_loader)
-all_predictions = np.array(all_predictions)
-all_outcomes_test = np.array(all_outcomes_test)
-correct_sign = ((all_predictions > 0) == (all_outcomes_test > 0)).mean()
+# best_test_loss = total_test_loss / len(test_loader)
+# all_predictions = np.array(all_predictions)
+# all_outcomes_test = np.array(all_outcomes_test)
+# correct_sign = ((all_predictions > 0) == (all_outcomes_test > 0)).mean()
 
-print(f"Current best test loss: {best_test_loss:.4f}")
-print(
-    f"Predictions - min: {all_predictions.min():.3f}, max: {all_predictions.max():.3f}, mean: {all_predictions.mean():.3f}, std: {all_predictions.std():.3f}"
-)
-print(f"% predicted > 0.5: {(all_predictions > 0.5).mean():.3f}")
-print(f"% predicted < -0.5: {(all_predictions < -0.5).mean():.3f}")
-print(f"% predicted near 0 (|x| < 0.1): {(np.abs(all_predictions) < 0.1).mean():.3f}")
-print(f"Sign accuracy: {correct_sign:.3f}")
+# print(f"Current best test loss: {best_test_loss:.4f}")
+# print(
+#     f"Predictions - min: {all_predictions.min():.3f}, max: {all_predictions.max():.3f}, mean: {all_predictions.mean():.3f}, std: {all_predictions.std():.3f}"
+# )
+# print(f"% predicted > 0.5: {(all_predictions > 0.5).mean():.3f}")
+# print(f"% predicted < -0.5: {(all_predictions < -0.5).mean():.3f}")
+# print(f"% predicted near 0 (|x| < 0.1): {(np.abs(all_predictions) < 0.1).mean():.3f}")
+# print(f"Sign accuracy: {correct_sign:.3f}")
 
 
 # Training loop
-num_epochs = 50
+num_epochs = 40
 for epoch in range(num_epochs):
     value_network.train()
     for batch_idx, (states_batch, outcomes_batch) in enumerate(train_loader):
@@ -121,7 +136,7 @@ for epoch in range(num_epochs):
                 f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Epoch {epoch}/{num_epochs - 1}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}"
             )
     os.makedirs("models", exist_ok=True)
-    torch.save(value_network.state_dict(), f"models/value_network_epoch_{epoch}.pth")
+    torch.save(value_network.state_dict(), f"models/{model_prefix}_epoch_{epoch}.pth")
 
     # Evaluation
     value_network.eval()
@@ -139,7 +154,9 @@ for epoch in range(num_epochs):
         avg_test_loss = total_test_loss / len(test_loader)
         if avg_test_loss < best_test_loss:
             best_test_loss = avg_test_loss
-            torch.save(value_network.state_dict(), f"models_filtered/value_network.pth")
+            torch.save(
+                value_network.state_dict(), f"models_filtered/{model_prefix}.pth"
+            )
         print(
             f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Epoch {epoch}/{num_epochs - 1}, Test Loss: {avg_test_loss:.4f}"
         )

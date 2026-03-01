@@ -7,11 +7,11 @@ import datetime
 from benchmark import play_games
 from self_play import generate_self_play_game
 from policy_net import PolicyNetwork, ValueNetwork
-from utils import SL_NETWORK_PATH, VALUE_NETWORK_PATH
+from utils import SL_NETWORK_PATH, RL_NETWORK_PATH, VALUE_NETWORK_PATH
 
 
 def train_rl(
-    policy_network, value_network, device, num_iterations=4000, games_per_iteration=80
+    policy_network, value_network, device, num_iterations=1000, games_per_iteration=80
 ):
     """
     RL training loop.
@@ -23,9 +23,14 @@ def train_rl(
     policy_network = policy_network.to(device)
     optimizer = torch.optim.Adam(policy_network.parameters(), lr=0.0001)
 
-    # Initialize opponent pool
+    # Initialize opponent pool as the original SL network
     opponent_pool = [
-        copy.deepcopy({k: v.cpu() for k, v in policy_network.state_dict().items()})
+        copy.deepcopy(
+            {
+                k: v.cpu()
+                for k, v in torch.load(SL_NETWORK_PATH, weights_only=False).items()
+            }
+        )
     ]
 
     # start with SL network as opponent
@@ -34,7 +39,7 @@ def train_rl(
         policy_network.train()
 
         # Sample opponent from pool
-        if random.random() < 0.5 or len(opponent_pool) == 1:
+        if random.random() < 0.35 or len(opponent_pool) == 1:
             opponent_state = opponent_pool[0]  # SL network
         else:
             weights = [(i + 1) for i in range(1, len(opponent_pool))]
@@ -84,6 +89,7 @@ def train_rl(
         # TD advantages: V(s_{t+1}) - V(s_t) within a game, R - V(s_t) at game end.
         # Consecutive trajectory entries are both from the policy player's perspective
         # so no sign flip is needed. A game boundary occurs when move_idx doesn't advance
+        # This is the important step that made the RL network train successfully
         is_game_end = torch.ones(total_N, dtype=torch.bool)
         is_game_end[:-1] = move_idxs_t[1:] < move_idxs_t[:-1]
         next_values = torch.cat([values[1:], torch.zeros(1)])
@@ -151,7 +157,7 @@ def train_rl(
             print(
                 f"[{datetime.datetime.now().strftime('%H:%M:%S')}] New model won {games_won}/{games_played} games against the original SL network"
             )
-            if games_won / games_played >= 0.55:
+            if games_won / games_played >= 0.5353:  # One stdev above 100/200 games
                 state_dict_cpu = {
                     k: v.cpu() for k, v in policy_network.state_dict().items()
                 }
@@ -166,7 +172,7 @@ def train_rl(
 if __name__ == "__main__":
     device = torch.device("mps")
     policy_network = PolicyNetwork().to(device)
-    policy_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
+    policy_network.load_state_dict(torch.load(RL_NETWORK_PATH, weights_only=False))
     value_network = ValueNetwork().to(device)
     value_network.load_state_dict(torch.load(VALUE_NETWORK_PATH, weights_only=False))
     value_network.eval()

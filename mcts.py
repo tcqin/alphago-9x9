@@ -17,6 +17,8 @@ from utils import (
     RL_NETWORK_PATH,
     ROLLOUT_NETWORK_PATH,
     VALUE_NETWORK_PATH,
+    VALUE_NETWORK_SL_PATH,
+    VALUE_NETWORK_RL_PATH,
 )
 
 
@@ -99,7 +101,7 @@ class MCTS:
             key=lambda m: (
                 root.children[m].N
                 if (m is not None and not game.is_true_eye(m[0], m[1]))
-                else root.children[m].N * 0.05
+                else root.children[m].N * 0.1
             ),
         )
 
@@ -157,6 +159,14 @@ class MCTS:
                 scored.append((probs_np[i], move))
         scored.sort(reverse=True)
         top_moves = scored[:num_children]
+
+        # Add Dirichlet noise to root priors to break determinism
+        if node.parent is None:
+            noise = np.random.dirichlet([0.03] * len(top_moves))
+            top_moves = [
+                (prior * 0.75 + noise[i] * 0.25, move)
+                for i, (prior, move) in enumerate(top_moves)
+            ]
 
         for prior, move in top_moves:
             node.children[move] = MCTSNode(
@@ -245,9 +255,9 @@ class MCTS:
 if __name__ == "__main__":
     go_game = GoGame()
     policy_network = PolicyNetwork()
-    policy_network.load_state_dict(torch.load(RL_NETWORK_PATH, weights_only=False))
+    policy_network.load_state_dict(torch.load(SL_NETWORK_PATH, weights_only=False))
     value_network = ValueNetwork()
-    value_network.load_state_dict(torch.load(VALUE_NETWORK_PATH, weights_only=False))
+    value_network.load_state_dict(torch.load(VALUE_NETWORK_SL_PATH, weights_only=False))
     rollout_network = RolloutNetwork()
     rollout_network.load_state_dict(
         torch.load(ROLLOUT_NETWORK_PATH, weights_only=False)
@@ -257,9 +267,9 @@ if __name__ == "__main__":
         policy_network,
         rollout_network,
         device,
-        num_simulations=100,
-        value_network=None,
-        value_lambda=None,
+        num_simulations=2000,
+        value_network=value_network,
+        value_lambda=1.0,
     )
     i = 0
     while not go_game.is_game_over():
